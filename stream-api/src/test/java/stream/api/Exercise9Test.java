@@ -4,21 +4,20 @@ import common.test.tool.annotation.Difficult;
 import common.test.tool.annotation.Easy;
 import common.test.tool.dataset.ClassicOnlineStore;
 import common.test.tool.entity.Customer;
+import common.test.tool.entity.Item;
 import common.test.tool.util.CollectorImpl;
 
 import org.junit.Test;
 
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.EnumSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.function.BiConsumer;
 import java.util.function.BinaryOperator;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collector;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.is;
@@ -34,10 +33,10 @@ public class Exercise9Test extends ClassicOnlineStore {
          * Implement a {@link Collector} which can create a String with comma separated names shown in the assertion.
          * The collector will be used by serial stream.
          */
-        Supplier<Object> supplier = null;
-        BiConsumer<Object, String> accumulator = null;
-        BinaryOperator<Object> combiner = null;
-        Function<Object, String> finisher = null;
+        Supplier<List<String>> supplier = ArrayList::new;
+        BiConsumer<List<String>, String> accumulator = List::add;
+        BinaryOperator<List<String>> combiner = null;
+        Function<List<String>, String> finisher = (list) -> list.stream().collect(Collectors.joining(","));
 
         Collector<String, ?, String> toCsv =
             new CollectorImpl<>(supplier, accumulator, combiner, finisher, Collections.emptySet());
@@ -54,12 +53,25 @@ public class Exercise9Test extends ClassicOnlineStore {
          * values as {@link Set} of customers who are wanting to buy that item.
          * The collector will be used by parallel stream.
          */
-        Supplier<Object> supplier = null;
-        BiConsumer<Object, Customer> accumulator = null;
-        BinaryOperator<Object> combiner = null;
-        Function<Object, Map<String, Set<String>>> finisher = null;
+        Supplier<Map<String, Set<String>>> supplier = HashMap::new;
 
-        Collector<Customer, ?, Map<String, Set<String>>> toItemAsKey =
+        BiConsumer<Map<String, Set<String>>, Customer> accumulator = (map, cus) -> {
+            cus.getWantToBuy().stream()
+                              .map(Item::getName)
+                              .forEach(str-> map.merge(str, Stream.of(cus.getName()).collect(Collectors.toSet()), (set1, set2)-> {
+                                  set1.addAll(set2);
+                                  return set1;}));
+        };
+        BinaryOperator<Map<String,Set<String>>> combiner = (m1, m2)-> {
+            m2.forEach((item, set)-> m1.merge(item, set, (s1,s2)->{
+                s1.addAll(s2);
+                return s1;
+            }));
+            return m1;
+        };
+        Function<Map<String,Set<String>>, Map<String, Set<String>>> finisher = null;
+
+        Collector<Customer, Map<String, Set<String>>, Map<String, Set<String>>> toItemAsKey =
             new CollectorImpl<>(supplier, accumulator, combiner, finisher, EnumSet.of(
                 Collector.Characteristics.CONCURRENT,
                 Collector.Characteristics.IDENTITY_FINISH));
@@ -86,8 +98,27 @@ public class Exercise9Test extends ClassicOnlineStore {
          * "1-3" will be "111"
          * "7,1-3,5" will be "1110101"
          */
-        Collector<String, ?, String> toBitString = null;
 
+        Supplier<Set<Integer>> supplier = HashSet::new;
+
+        BiConsumer<Set<Integer>, String> accumulator = ((set, s) -> {
+            List<Integer> split = Arrays.stream(s.split("-")).map(Integer::valueOf).collect(Collectors.toList());
+            set.addAll((split.size()<2) ? split :
+            Stream.iterate(split.get(0), nr -> ++nr)
+                  .limit(split.get(1)-split.get(0)+1).collect(Collectors.toList()));
+            BinaryOperator<Set<Integer>> combiner = null;
+        });
+
+        BinaryOperator<Set<Integer>> combiner = null;
+
+        Function<Set<Integer>, String> finisher = set->{
+            Integer max = set.stream().max(Comparator.comparingInt(anInt -> anInt)).get();
+            List<String> stringList= Stream.generate(()->"0").limit(max).collect(Collectors.toList());
+            set.forEach(integer -> stringList.set(integer-1, "1"));
+            return stringList.stream().collect(Collectors.joining(""));
+        };
+
+        Collector<String, Set<Integer>, String> toBitString = new CollectorImpl<>(supplier, accumulator, combiner, finisher, Collections.emptySet());
         String bitString = Arrays.stream(bitList.split(",")).collect(toBitString);
         assertThat(bitString, is("01011000101001111000011100000000100001110111010101")
 
